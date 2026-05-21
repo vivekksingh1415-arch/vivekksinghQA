@@ -1,0 +1,1309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shop LC QA – Advanced Validator (UK Time)</title>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    :root { --primary: #00e5ff; --error: #ff5252; --bg: #0f0f0f; --panel: #181818; }
+    
+    body { margin:0; font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color:#eee; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+    
+    header { height: 50px; padding:0 20px; background: var(--panel); border-bottom:2px solid var(--primary); display:flex; justify-content:space-between; align-items:center; flex-shrink: 0; }
+    header h1 { font-size:18px; margin:0; color: var(--primary); text-transform: uppercase; letter-spacing: 1px; }
+    
+    .layout { display:grid; grid-template-columns:300px 1fr 350px; flex-grow: 1; overflow: hidden; }
+    
+    .sidebar { border-right:1px solid #333; background:#151515; padding:15px; overflow-y:auto; font-size:12px; }
+    .sidebar h2 { font-size:13px; margin:15px 0 8px; color:#ffd54f; text-transform: uppercase; border-bottom: 1px solid #333; padding-bottom: 5px;}
+    
+    input[type=file], select { width:100%; background:#111; color:#eee; border:1px solid #444; border-radius:4px; padding:8px; margin-bottom:10px; cursor: pointer; }
+    
+    .btn { width:100%; padding:10px; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-top:5px; transition: 0.2s; }
+    .btn-run { background: #00c853; color: white; }
+    .btn-preview { background: #2962ff; color: white; }
+    .btn-ocr { background: #ff9100; color: white; }
+
+    .content { display:grid; grid-template-rows: auto 1fr; background: #111; overflow: hidden; }
+    
+    .stats-grid { display:grid; grid-template-columns: 1fr 1fr; gap:15px; padding:15px; background: var(--panel); border-bottom: 1px solid #333; flex-shrink: 0; }
+    .stat-card { background: #222; padding:10px; border-radius:4px; border: 1px solid #333; position: relative; transition: 0.2s; }
+    .stat-card.clickable { cursor: pointer; border-color: var(--primary); }
+    .stat-card.clickable:hover { background: #2a2a2a; transform: translateY(-2px); }
+    .stat-val { font-size: 18px; font-weight: bold; color: var(--primary); }
+    .stat-label { font-size: 10px; color: #888; text-transform: uppercase; }
+
+    .gallery-wrapper { padding:15px; overflow-y:auto; height: 100%; }
+    .gallery { display:flex; flex-wrap:wrap; gap:12px; padding-bottom: 50px; }
+    
+    .card { background:#1e1e1e; border-radius:6px; border:1px solid #333; width:220px; overflow:hidden; cursor:pointer; position: relative; display: flex; flex-direction: column; }
+    .card.has-error { border-color: var(--error); }
+    .card.is-expired { border-style: dashed; border-color: #ffab40; }
+    
+    .error-overlay { background: rgba(255, 82, 82, 0.9); color: white; padding: 5px; font-size: 9px; font-weight: bold; position: absolute; top:0; left:0; width: 100%; box-sizing: border-box; z-index: 5; }
+
+    .card-img { height:110px; background:#000; display:flex; align-items:center; justify-content:center; position: relative; }
+    .card-img img { max-width:100%; max-height:100%; }
+    .card-info { padding:8px; font-size:10px; border-top: 1px solid #333; background: #1e1e1e; }
+
+    .error-sidebar { background:#161616; padding:15px; overflow-y:auto; border-left: 1px solid #333; }
+    .missing-item { padding:8px; background:#222; border-left: 3px solid var(--primary); border-bottom: 1px solid #333; margin-bottom:8px; font-size:11px; line-height: 1.4; }
+
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,0.9); display:none; align-items:center; justify-content:center; z-index:9999; }
+    .modal-content { background:#1b1b1b; width:700px; border:2px solid var(--primary); border-radius:8px; padding:20px; position: relative; max-height: 85vh; overflow-y: auto; }
+    .close-modal { position:absolute; top:10px; right:15px; font-size:24px; cursor:pointer; color:#888; }
+    
+    table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+    th { text-align: left; background: #222; padding: 10px; color: var(--primary); border-bottom: 2px solid #333; }
+    td { padding: 8px 10px; border-bottom: 1px solid #333; vertical-align: top; }
+
+    .tag { padding:2px 6px; border-radius:3px; font-size:9px; font-weight:bold; margin-right:5px; background:#333; }
+    .tag-timeup { background: #ffab40; color: black; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Shop LC – <span style="color:#ffab40">Advanced QA Engine</span></h1>
+  <div>
+    <span id="ukTime" style="color:#aaa; font-size:12px; margin-right:15px; font-family: monospace;"></span>
+    <span id="dateLabel" style="font-weight:bold; color:var(--primary);"></span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h2>1. Smartsheet Input</h2>
+    <input type="file" id="excelInput" accept=".xlsx,.xls">
+    
+    <h2>2. Assets (.jpg only)</h2>
+    <label>Choose PB/LD/BB Files:</label>
+    <input type="file" id="imageInput" accept=".jpg,.jpeg" multiple>
+    
+    <h2>3. Actions</h2>
+    <button class="btn btn-preview" onclick="hardRefresh()">1. Refresh Gallery</button>
+    <button class="btn btn-run" onclick="runValidation()">2. Run Deep Validation</button>
+    <button class="btn btn-ocr" id="ocrBtn" onclick="matchOCRWithExcel()">3. Match OCR with Excel</button>
+    <div id="ocrProcessStatus" style="display:none; margin-top:8px; font-size:11px; color:#ffd54f; line-height:1.5;">
+      OCR Status: Idle
+    </div>
+  </aside>
+
+  <section class="content">
+    <div class="stats-grid">
+      <div class="stat-card clickable" onclick="showExcelDetails()">
+        <div class="stat-label">Excel Slots (Click to View)</div>
+        <div class="stat-val" id="totalSlots">0</div>
+        <div id="typeBreakdown" style="font-size:9px; color:#aaa; margin-top:5px;">PB: 0 | LD: 0 | BB: 0</div>
+      </div>
+      <div class="stat-card clickable" onclick="showMissingDetails()">
+        <div class="stat-label" style="color:var(--error)">Missing Assets (Click for Details)</div>
+        <div class="stat-val" id="missingCount" style="color:var(--error);">0</div>
+      </div>
+      <div class="stat-card clickable" onclick="showValidationErrorDetails()">
+        <div class="stat-label">Validation Errors (Click for Details)</div>
+        <div class="stat-val" id="errorCount" style="color:var(--error);">0</div>
+      </div>
+      <div class="stat-card clickable" onclick="showTimeUpDetails()">
+        <div class="stat-label" style="color:#ffab40">UK Time-Up Count (Click for Details)</div>
+        <div class="stat-val" id="timeUpCount" style="color:#ffab40;">0</div>
+      </div>
+    </div>
+
+    <div class="gallery-wrapper">
+      <div class="gallery" id="mainGallery"></div>
+    </div>
+  </section>
+
+  <aside class="error-sidebar">
+    <h2 id="missingTitle" style="color:var(--primary); font-size:14px;">Excel Details</h2>
+    <div id="missingContainer"></div>
+  </aside>
+</div>
+
+<div id="detailModal" class="modal">
+  <div class="modal-content">
+    <span class="close-modal" onclick="closeModal()">&times;</span>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+let excelData = [];
+let assetFiles = [];
+let assetMeta = {};
+let validationReport = {};
+let expiredFiles = new Set();
+let matchedRows = new Set();
+let ocrQaResults = {};
+let ocrProcessStartTime = null;
+let ocrProcessTimer = null;
+
+const currentYear = new Date().getFullYear().toString();
+
+const expectedResByType = {
+  PB: { w: 1600, h: 408 },
+  LD: { w: 2630, h: 1686 },
+  BB: { w: 1920, h: 1080 }
+};
+
+function getFileTypeFromName(filename) {
+  return (filename.split('_')[0] || '').toUpperCase();
+}
+
+function getUKNow() {
+  return new Date(new Date().toLocaleDateString("en-US", {timeZone: "Europe/London"}) + ' ' + new Date().toLocaleTimeString("en-US", {timeZone: "Europe/London"}));
+}
+
+function updateUKTime() {
+  const options = { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+  const ukTime = new Intl.DateTimeFormat('en-GB', options).format(new Date());
+  document.getElementById('ukTime').textContent = `UK TIME: ${ukTime}`;
+  document.getElementById('dateLabel').textContent = new Date().toLocaleDateString('en-GB', {timeZone: 'Europe/London'});
+}
+setInterval(updateUKTime, 1000);
+updateUKTime();
+
+function hardRefresh() {
+  window.location.reload();
+}
+
+function updateOCRButtonVisibility() {
+  const btn = document.querySelector('.btn-ocr');
+  if (!btn) return;
+  btn.style.display = (excelData.length > 0 && assetFiles.length > 0) ? 'block' : 'none';
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function startOcrProcessUI(totalFiles) {
+  const btn = document.getElementById('ocrBtn');
+  const status = document.getElementById('ocrProcessStatus');
+
+  ocrProcessStartTime = Date.now();
+
+  if (ocrProcessTimer) {
+    clearInterval(ocrProcessTimer);
+    ocrProcessTimer = null;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '3. OCR Matching Running...';
+    btn.style.opacity = '0.7';
+    btn.style.cursor = 'not-allowed';
+  }
+
+  if (status) {
+    status.style.display = 'block';
+    status.innerHTML = `OCR Status: Processing started...<br>Total Files: ${totalFiles}<br>Elapsed Time: 00:00`;
+  }
+
+  ocrProcessTimer = setInterval(() => {
+    const elapsed = Date.now() - ocrProcessStartTime;
+    if (status) {
+      status.innerHTML = `OCR Status: Processing...<br>Total Files: ${totalFiles}<br>Elapsed Time: ${formatDuration(elapsed)}`;
+    }
+  }, 1000);
+}
+
+function finishOcrProcessUI(totalFiles, doneFiles, hadError = false) {
+  const btn = document.getElementById('ocrBtn');
+  const status = document.getElementById('ocrProcessStatus');
+  const totalMs = ocrProcessStartTime ? (Date.now() - ocrProcessStartTime) : 0;
+
+  if (ocrProcessTimer) {
+    clearInterval(ocrProcessTimer);
+    ocrProcessTimer = null;
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '3. Match OCR with Excel';
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+  }
+
+  if (status) {
+    status.style.display = 'block';
+    status.innerHTML = hadError
+      ? `OCR Status: Failed / Interrupted<br>Processed Files: ${doneFiles}/${totalFiles}<br>Total Time: ${formatDuration(totalMs)}`
+      : `OCR Status: Completed ✅<br>Processed Files: ${doneFiles}/${totalFiles}<br>Total Time: ${formatDuration(totalMs)}`;
+  }
+}
+
+function normalizeText(v) {
+  return (v || '')
+    .toString()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s:.,%\-ÄÖÜäöüß]/g, '')
+    .trim();
+}
+
+function normalizeDate(v) {
+  const s = normalizeText(v);
+  let m = s.match(/(\d{4})[-/](\\d{2})[-/](\\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/(\d{1,2})[-/](\\d{1,2})[-/](\\d{4})/);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  return s;
+}
+
+function normalizeTime(v) {
+  const s = normalizeText(v);
+  if (s.includes('MITTERN')) return '00:00';
+  if (s.includes('MITTERNACH')) return '00:00';
+  if (s.includes('MITTERNACHT')) return '00:00';
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  return `${String(m[1]).padStart(2,'0')}:${m[2]}`;
+}
+
+function formatExcelDate(serial) {
+  if (!serial && serial !== 0) return '';
+  if (typeof serial === 'string') return normalizeDate(serial);
+  const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+  return d.toISOString().slice(0,10);
+}
+
+function formatExcelTime(val) {
+  if (!val && val !== 0) return '';
+  if (typeof val === 'string') return normalizeTime(val);
+  const minutes = Math.round(val * 24 * 60);
+  const h = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const m = String(minutes % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function getRowType(typeRaw) {
+  const t = (typeRaw || '').toString().toUpperCase();
+  if (t.includes('BILLBOARD')) return 'BB';
+  if (t.includes('LARGE')) return 'LD';
+  return 'PB';
+}
+
+function parseTimeCode(filename) {
+  const name = filename.toUpperCase();
+  const m = name.match(/_FROM_(\d{4})_(\d{2})_(\d{2})_(\d{1,2})_(\d{2})_TO_(\d{4})_(\d{2})_(\d{2})_(\d{1,2})_(\d{2})/);
+  if (!m) return null;
+  return {
+    startDate: `${m[1]}-${m[2]}-${m[3]}`,
+    startTime: `${String(m[4]).padStart(2,'0')}:${m[5]}`,
+    endDate: `${m[6]}-${m[7]}-${m[8]}`,
+    endTime: `${String(m[9]).padStart(2,'0')}:${m[10]}`
+  };
+}
+
+function findRowByFilename(fileName) {
+  const prefix = fileName.split('_')[0].toUpperCase();
+  const tc = parseTimeCode(fileName);
+  if (!tc) return null;
+
+  const endDateNorm = normalizeDate(tc.endDate);
+  const endTimeNorm = normalizeTime(tc.endTime);
+
+  return (
+    excelData.find(
+      r =>
+        r.type === prefix &&
+        normalizeDate(r.endDate) === endDateNorm &&
+        normalizeTime(r.endTime) === endTimeNorm
+    ) || null
+  );
+}
+
+function findRowByOCR(ocrInfo) {
+  const type = ocrInfo.type;
+  const oDate = normalizeDate(ocrInfo.dateText);
+  const oTime = normalizeTime(ocrInfo.timeText);
+  const oTitle = normalizeText(ocrInfo.titleText || '');
+
+  let row = excelData.find(r =>
+    r.type === type &&
+    normalizeDate(r.endDate) === oDate &&
+    normalizeTime(r.endTime) === oTime &&
+    oTitle && normalizeText(r.text).includes(oTitle.substring(0, Math.min(8, oTitle.length)))
+  );
+  if (row) return row;
+
+  row = excelData.find(r =>
+    r.type === type &&
+    normalizeDate(r.endDate) === oDate &&
+    normalizeTime(r.endTime) === oTime
+  );
+  if (row) return row;
+
+  if (oTitle) {
+    row = excelData.find(r =>
+      r.type === type &&
+      normalizeText(r.text).includes(oTitle.substring(0, Math.min(8, oTitle.length)))
+    );
+    if (row) return row;
+  }
+
+  return null;
+}
+
+function upscaleCanvas(sourceCanvas, scale) {
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+  out.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+  const octx = out.getContext('2d');
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = 'high';
+  octx.drawImage(sourceCanvas, 0, 0, out.width, out.height);
+  return out;
+}
+
+function grayscaleContrastThreshold(canvas, opts = {}) {
+  const {
+    contrast = 1.45,
+    brightness = 0,
+    threshold = 165,
+    adaptive = false,
+    blur = false,
+    sharpen = false,
+    invert = false,
+    yellowBoost = false
+  } = opts;
+
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(canvas, 0, 0);
+
+  if (blur) {
+    ctx.filter = 'blur(0.6px)';
+    ctx.drawImage(out, 0, 0);
+    ctx.filter = 'none';
+  }
+
+  const imgData = ctx.getImageData(0, 0, out.width, out.height);
+  const d = imgData.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+
+    let v;
+    if (yellowBoost) {
+      v = (0.15 * r) + (0.15 * g) + (0.70 * b);
+    } else {
+      v = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    v = ((v - 128) * contrast) + 128 + brightness;
+    v = Math.max(0, Math.min(255, v));
+
+    d[i] = d[i + 1] = d[i + 2] = v;
+    d[i + 3] = 255;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  if (sharpen) {
+    const src = ctx.getImageData(0, 0, out.width, out.height);
+    const dst = ctx.createImageData(out.width, out.height);
+    const s = src.data, t = dst.data;
+    const w = out.width, h = out.height;
+    const k = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        let sum = 0;
+        let ki = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = ((y + ky) * w + (x + kx)) * 4;
+            sum += s[idx] * k[ki++];
+          }
+        }
+        const val = Math.max(0, Math.min(255, sum));
+        const di = (y * w + x) * 4;
+        t[di] = t[di + 1] = t[di + 2] = val;
+        t[di + 3] = 255;
+      }
+    }
+    ctx.putImageData(dst, 0, 0);
+  }
+
+  const img2 = ctx.getImageData(0, 0, out.width, out.height);
+  const p = img2.data;
+
+  if (!adaptive) {
+    for (let i = 0; i < p.length; i += 4) {
+      let v = p[i] > threshold ? 255 : 0;
+      if (invert) v = 255 - v;
+      p[i] = p[i + 1] = p[i + 2] = v;
+      p[i + 3] = 255;
+    }
+  } else {
+    const w = out.width, h = out.height;
+    const gray = new Uint8ClampedArray(w * h);
+    for (let i = 0, j = 0; i < p.length; i += 4, j++) gray[j] = p[i];
+
+    const radius = 8;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0, count = 0;
+        for (let yy = Math.max(0, y - radius); yy <= Math.min(h - 1, y + radius); yy++) {
+          for (let xx = Math.max(0, x - radius); xx <= Math.min(w - 1, x + radius); xx++) {
+            sum += gray[yy * w + xx];
+            count++;
+          }
+        }
+        const localMean = sum / count;
+        let v = gray[y * w + x] > (localMean - 10) ? 255 : 0;
+        if (invert) v = 255 - v;
+        const di = (y * w + x) * 4;
+        p[di] = p[di + 1] = p[di + 2] = v;
+        p[di + 3] = 255;
+      }
+    }
+  }
+
+  ctx.putImageData(img2, 0, 0);
+  return out;
+}
+
+function extractBestTitle(raw) {
+  const lines = (raw || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const cleaned = lines
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(line => {
+      const up = line.toUpperCase();
+      if (/^\d{1,2}:\d{2}$/.test(up)) return false;
+      if (up.includes('MITTERNACH') || up.includes('MITTERNACHT') || up === 'MITTERN') return false;
+      if (/\b(JAN|FEB|MÄR|MAI|APR|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)\b/.test(up) && up.length <= 12) return false;
+      return true;
+    });
+
+  return cleaned.join(' ');
+}
+
+function extractPbSingleLineDateTime(raw) {
+  const txt = normalizeText(raw || '');
+  if (!txt) return '';
+
+  const monthPart = '(JAN|FEB|MÄR|MAI|APR|JUN|JUL|AUG|SEP|OKT|NOV|DEZ|05)';
+  const m = txt.match(new RegExp(`\\b(\\d{1,2})\\s+${monthPart}\\s+(\\d{1,2}:\\d{2})\\b`));
+
+  if (!m) return '';
+
+  const day = m[1];
+  const month = m[2];
+  const time = m[3];
+  return `${day} ${month} ${time}`;
+}
+
+function scoreOcrResult(raw) {
+  const txt = normalizeText(raw || '');
+  if (!txt) return 0;
+  let score = 0;
+  const words = txt.split(' ').filter(Boolean);
+  score += words.length * 8;
+  score += (txt.match(/[A-ZÄÖÜß]/g) || []).length;
+  score += (txt.match(/\d/g) || []).length * 3;
+  score += (txt.match(/%/g) || []).length * 12;
+  if (/\d{1,2}:\d{2}/.test(txt)) score += 25;
+  if (/\d+%/.test(txt)) score += 20;
+  if (/\d+[A-ZÄÖÜß]+/.test(txt)) score += 12;
+  if (/MITTERN|MITTERNACH|MITTERNACHT/.test(txt)) score += 20;
+  if (/\b(MAI|JAN|FEB|MÄR|APR|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)\b/.test(txt)) score += 15;
+  return score;
+}
+
+async function runOcrOnCanvas(canvas, psm = 6) {
+  const result = await Tesseract.recognize(
+    canvas.toDataURL('image/png'),
+    'deu',
+    {
+      tessedit_pageseg_mode: psm,
+      preserve_interword_spaces: '1',
+      user_defined_dpi: '300',
+      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß:%.,- '
+    }
+  );
+  return result?.data?.text || '';
+}
+
+async function runMultiPassOcr(canvas) {
+  const modes = [6, 11, 13];
+  const results = [];
+
+  for (const psm of modes) {
+    const text = await runOcrOnCanvas(canvas, psm);
+    results.push({ text, score: scoreOcrResult(text), psm });
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results[0].text;
+}
+
+async function ocrImageRegion(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+
+  const typeFromName = getFileTypeFromName(file.name);
+  const attempts = typeFromName === 'PB' ? [0.72, 0.60, 0.50] : [0.50, 0.60, 0.70];
+  let bestResult = '';
+  let bestScore = 0;
+
+  for (const widthRatio of attempts) {
+    const sx = 0;
+    const sy = 0;
+    const sw = Math.round(img.naturalWidth * widthRatio);
+    const sh = img.naturalHeight;
+
+    const baseCanvas = document.createElement('canvas');
+    const baseCtx = baseCanvas.getContext('2d');
+    baseCanvas.width = sw;
+    baseCanvas.height = sh;
+    baseCtx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const upscaled = upscaleCanvas(baseCanvas, 2.2);
+
+    const passList = [
+      grayscaleContrastThreshold(upscaled, {
+        contrast: 1.55,
+        brightness: 4,
+        threshold: 168,
+        adaptive: false,
+        blur: true,
+        sharpen: true
+      }),
+      grayscaleContrastThreshold(upscaled, {
+        contrast: 1.75,
+        brightness: -8,
+        threshold: 145,
+        adaptive: false,
+        blur: true,
+        sharpen: true,
+        yellowBoost: true
+      }),
+      grayscaleContrastThreshold(upscaled, {
+        contrast: 1.90,
+        brightness: -18,
+        threshold: 132,
+        adaptive: true,
+        blur: false,
+        sharpen: true,
+        yellowBoost: true
+      }),
+      grayscaleContrastThreshold(upscaled, {
+        contrast: 1.65,
+        brightness: -10,
+        threshold: 150,
+        adaptive: false,
+        blur: false,
+        sharpen: true,
+        yellowBoost: true,
+        invert: true
+      }),
+      grayscaleContrastThreshold(upscaled, {
+        contrast: 2.05,
+        brightness: 18,
+        threshold: 185,
+        adaptive: false,
+        blur: false,
+        sharpen: true
+      })
+    ];
+
+    for (const processedCanvas of passList) {
+      const raw = await runMultiPassOcr(processedCanvas);
+      const score = scoreOcrResult(raw);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestResult = raw;
+      }
+    }
+
+    if (bestScore > 60) break;
+  }
+
+  URL.revokeObjectURL(url);
+
+  const norm = normalizeText(bestResult);
+
+  const timeMatch = norm.match(/(\d{1,2}):(\d{2})/);
+  let timeText = '';
+  if (timeMatch) {
+    timeText = `${timeMatch[1]}:${timeMatch[2]}`;
+  } else if (norm.includes('MITTERN') || norm.includes('MITTERNACH') || norm.includes('MITTERNACHT')) {
+    timeText = '00:00';
+  }
+
+  const dayMatch =
+    norm.match(/\b(\d{1,2})\s+MAI\b/) ||
+    norm.match(/\b(\d{1,2})\s+JAN\b/) ||
+    norm.match(/\b(\d{1,2})\s+FEB\b/) ||
+    norm.match(/\b(\d{1,2})\s+MÄR\b/) ||
+    norm.match(/\b(\d{1,2})\s+APR\b/) ||
+    norm.match(/\b(\d{1,2})\s+JUN\b/) ||
+    norm.match(/\b(\d{1,2})\s+JUL\b/) ||
+    norm.match(/\b(\d{1,2})\s+AUG\b/) ||
+    norm.match(/\b(\d{1,2})\s+SEP\b/) ||
+    norm.match(/\b(\d{1,2})\s+OKT\b/) ||
+    norm.match(/\b(\d{1,2})\s+NOV\b/) ||
+    norm.match(/\b(\d{1,2})\s+DEZ\b/) ||
+    norm.match(/\b(\d{1,2})\s+05\b/);
+
+  const dateText = dayMatch ? `${dayMatch[1]}-05-${currentYear}` : '';
+  const titleText = normalizeText(extractBestTitle(bestResult));
+  const pbDateMonthTimeLine = extractPbSingleLineDateTime(bestResult);
+
+  return { fullRaw: bestResult, fullNorm: norm, dateText, timeText, titleText, pbDateMonthTimeLine };
+}
+
+function checkOcrPunctuationIssues(rawText) {
+  const txt = rawText || '';
+  const issues = [];
+
+  const badComma = /,[^\s\n]/.test(txt);
+  if (badComma) issues.push('COMMA SPACE MISSING');
+
+  const endDashBad = /-\s*$/.test(txt.trim()) || /^\s*-/.test(txt);
+  const midDashBad = /\b\w+-\s+\w+|\b\w+\s+-\w+\b/.test(txt);
+  if (endDashBad || midDashBad) issues.push('DASH SPACING WRONG');
+
+  return issues;
+}
+
+function levenshtein(a, b) {
+  a = a || '';
+  b = b || '';
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+function similarityRatio(a, b) {
+  a = normalizeText(a).replace(/\s+/g, ' ').trim();
+  b = normalizeText(b).replace(/\s+/g, ' ').trim();
+  if (!a || !b) return 0;
+  const dist = levenshtein(a, b);
+  return 1 - (dist / Math.max(a.length, b.length));
+}
+
+function isNearWordMatch(a, b) {
+  a = normalizeText(a);
+  b = normalizeText(b);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) {
+    return Math.min(a.length, b.length) >= 5;
+  }
+  return similarityRatio(a, b) >= 0.72;
+}
+
+function repairPartialWords(ocrWords, excelWords) {
+  const repaired = [];
+  
+  for (let i = 0; i < ocrWords.length; i++) {
+    const ow = ocrWords[i];
+    let foundMatch = false;
+
+    for (const ew of excelWords) {
+      if (ew.startsWith(ow) && ew.length > ow.length && ew.length - ow.length <= 3) {
+        repaired.push(ew);
+        foundMatch = true;
+        break;
+      } else if (ew.endsWith(ow) && ew.length > ow.length && ew.length - ow.length <= 3) {
+        repaired.push(ew);
+        foundMatch = true;
+        break;
+      }
+    }
+
+    if (!foundMatch) repaired.push(ow);
+  }
+
+  return repaired;
+}
+
+function compareOcrWithExcelWords(ocrTitleText, excelRawText) {
+  function cleanTitleOnly(txt) {
+    return (txt || '')
+      .toString()
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join(' ')
+      .toUpperCase()
+      .replace(/\b(\d{1,2})\s+(JAN|FEB|MÄR|MAI|APR|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)\b/g, ' ')
+      .replace(/\b(JAN|FEB|MÄR|MAI|APR|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)\b/g, ' ')
+      .replace(/\bMITTERNACHT\b/g, ' ')
+      .replace(/\bMITTERNACH\b/g, ' ')
+      .replace(/\bMITTERN\b/g, ' ')
+      .replace(/\b(\d{1,2})\s+[01]?\d\b/g, ' ')
+      .replace(/\b\d{1,2}:\d{2}\b/g, ' ')
+      .replace(/[^A-ZÄÖÜß0-9% ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  const oTitle = cleanTitleOnly(ocrTitleText);
+  const eTitle = cleanTitleOnly(excelRawText);
+
+  if (!oTitle || !eTitle) {
+    return {
+      extra: [],
+      missing: [],
+      oTitle,
+      eTitle,
+      charExtra: [],
+      charMissing: [],
+      similarity: 0
+    };
+  }
+
+  const oWords = oTitle.split(' ').filter(Boolean);
+  const eWords = eTitle.split(' ').filter(Boolean);
+
+  const repairedOWords = repairPartialWords(oWords, eWords);
+
+  const usedExcel = new Set();
+  const extraWords = [];
+  const matchedPairs = [];
+
+  for (const ow of repairedOWords) {
+    let foundIndex = -1;
+    for (let i = 0; i < eWords.length; i++) {
+      if (usedExcel.has(i)) continue;
+      if (isNearWordMatch(ow, eWords[i])) {
+        foundIndex = i;
+        matchedPairs.push([ow, eWords[i]]);
+        break;
+      }
+    }
+    if (foundIndex >= 0) usedExcel.add(foundIndex);
+    else extraWords.push(ow);
+  }
+
+  const missingWords = eWords.filter((_, i) => !usedExcel.has(i));
+  const titleSimilarity = similarityRatio(oTitle, eTitle);
+
+  return {
+    extra: extraWords,
+    missing: missingWords,
+    oTitle,
+    eTitle,
+    charExtra: [],
+    charMissing: [],
+    similarity: titleSimilarity,
+    matchedPairs
+  };
+}
+
+document.getElementById('excelInput').addEventListener('change', function(e) {
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const wb = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
+    const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1});
+    
+    excelData = rawData.slice(1).map((row, idx) => ({
+      rowNum: idx + 2,
+      text: row[0] || 'N/A',
+      branding: row[1] || 'N/A',
+      startDate: formatExcelDate(row[2]),
+      startTime: formatExcelTime(row[3]),
+      endDate: formatExcelDate(row[4]),
+      endTime: formatExcelTime(row[5]),
+      type: getRowType(row[6])
+    }));
+
+    updateStats();
+    renderExcelSidebar();
+    updateOCRButtonVisibility();
+  };
+  reader.readAsArrayBuffer(e.target.files[0]);
+});
+
+function renderExcelSidebar() {
+  const container = document.getElementById('missingContainer');
+  container.innerHTML = '';
+  excelData.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'missing-item';
+    div.innerHTML = `
+      Row: ${item.rowNum} | <b>${item.type}</b><br>
+      <span style="color:#00e5ff">${item.text}</span><br>
+      Start: ${item.startDate} (${item.startTime})<br>
+      End: ${item.endDate} (${item.endTime})
+    `;
+    container.appendChild(div);
+  });
+}
+
+document.getElementById('imageInput').addEventListener('change', async function(e) {
+  assetFiles = Array.from(e.target.files);
+  for (let file of assetFiles) {
+    if (!assetMeta[file.name]) {
+      await new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          assetMeta[file.name] = { w: img.naturalWidth, h: img.naturalHeight, url: img.src };
+          resolve();
+        };
+        img.src = URL.createObjectURL(file);
+      });
+    }
+  }
+  previewAll();
+  updateOCRButtonVisibility();
+});
+
+async function matchOCRWithExcel() {
+  if (assetFiles.length === 0 || excelData.length === 0) {
+    alert("Please upload Excel and Images first.");
+    return;
+  }
+
+  const totalFiles = assetFiles.length;
+  let doneFiles = 0;
+
+  startOcrProcessUI(totalFiles);
+
+  try {
+    for (let key in validationReport) {
+      validationReport[key] = validationReport[key].filter(
+        e => !e.startsWith('OCR') &&
+             e !== "NO EXCEL MATCH" &&
+             e !== "ADT LOGO MISSING" &&
+             e !== "PUNCTUATION FORMAT ERROR" &&
+             e !== "BANNER TIME MISMATCH" &&
+             e !== "OCR TEXT MISMATCH"
+      );
+      if (validationReport[key].length === 0) delete validationReport[key];
+    }
+
+    ocrQaResults = {};
+
+    for (const file of assetFiles) {
+      const prefix = file.name.split('_')[0].toUpperCase();
+
+      let row = findRowByFilename(file.name);
+      const ocrInfo = await ocrImageRegion(file);
+
+      if (!row) {
+        row = findRowByOCR({
+          type: prefix,
+          dateText: ocrInfo.dateText,
+          timeText: ocrInfo.timeText,
+          titleText: ocrInfo.titleText
+        });
+      }
+
+      if (!row && prefix === 'PB') {
+        row = findRowByOCR({
+          type: 'PB',
+          dateText: ocrInfo.dateText,
+          timeText: ocrInfo.timeText,
+          titleText: ocrInfo.titleText
+        });
+      }
+
+      if (!row) {
+        if (!validationReport[file.name]) validationReport[file.name] = [];
+        validationReport[file.name].push("NO EXCEL MATCH");
+        ocrQaResults[file.name] = { rowNum: null };
+        doneFiles++;
+
+        const status = document.getElementById('ocrProcessStatus');
+        if (status && ocrProcessStartTime) {
+          status.innerHTML = `OCR Status: Processing...<br>Processed Files: ${doneFiles}/${totalFiles}<br>Elapsed Time: ${formatDuration(Date.now() - ocrProcessStartTime)}`;
+        }
+        continue;
+      }
+
+      if (!validationReport[file.name]) validationReport[file.name] = [];
+
+      try {
+        const tc = parseTimeCode(file.name);
+        const fileEndDate = tc ? tc.endDate : '';
+        const fileEndTime = tc ? tc.endTime : '';
+
+        const fileDateOk = tc ? normalizeDate(fileEndDate) === normalizeDate(row.endDate) : true;
+        const fileTimeOk = tc ? normalizeTime(fileEndTime) === normalizeTime(row.endTime) : true;
+
+        const bannerTime = normalizeTime(ocrInfo.timeText);
+        let bannerTimeOk = true;
+        if (bannerTime) {
+          bannerTimeOk = bannerTime === normalizeTime(row.endTime);
+          if (!bannerTimeOk) validationReport[file.name].push("BANNER TIME MISMATCH");
+        }
+
+        const textCompare = compareOcrWithExcelWords(
+          ocrInfo.titleText || '',
+          row.text || ''
+        );
+
+        const rowBrand = normalizeText(row.branding);
+        const oTitle = normalizeText(ocrInfo.titleText);
+
+        let titleOk = false;
+
+        if (textCompare.similarity >= 0.78) {
+          titleOk = true;
+        } else if ((textCompare.missing || []).length === 0 && (textCompare.extra || []).length <= 1) {
+          titleOk = true;
+        } else if (rowBrand && oTitle && similarityRatio(oTitle, rowBrand) >= 0.72) {
+          titleOk = true;
+        }
+
+        const rowMatched = fileDateOk && fileTimeOk && bannerTimeOk;
+
+        const hasAdt = ocrInfo.fullNorm.includes('ADT');
+        if (!rowMatched) {
+          if (hasAdt && !file.name.toUpperCase().includes('LOGO')) {
+            validationReport[file.name].push("ADT LOGO MISSING");
+          }
+          const punctIssues = checkOcrPunctuationIssues(ocrInfo.fullRaw);
+          if (punctIssues.length > 0) {
+            validationReport[file.name].push("PUNCTUATION FORMAT ERROR");
+          }
+        }
+
+        ocrQaResults[file.name] = {
+          rowNum: row.rowNum,
+          type: row.type,
+          dateOk: fileDateOk,
+          timeOk: fileTimeOk && bannerTimeOk,
+          titleOk,
+          bannerTimeOk,
+          bannerTime: bannerTime,
+          excelEndTime: row.endTime,
+          ocrText: ocrInfo.titleText || '',
+          excelText: row.text,
+          displayExcelTitle: row.text || '',
+          extraWords: textCompare.extra,
+          missingWords: textCompare.missing,
+          charExtra: textCompare.charExtra || [],
+          charMissing: textCompare.charMissing || [],
+          cleanOcrTitle: textCompare.oTitle || '',
+          cleanExcelTitle: textCompare.eTitle || '',
+          similarity: textCompare.similarity,
+          pbDateMonthTimeLine: ocrInfo.pbDateMonthTimeLine || ''
+        };
+
+        if (!rowMatched) {
+          if (!fileDateOk) validationReport[file.name].push("OCR DATE MISMATCH");
+          if (!fileTimeOk) validationReport[file.name].push("OCR TIME MISMATCH (FILENAME)");
+          if (!bannerTimeOk) validationReport[file.name].push("OCR TIME MISMATCH (BANNER)");
+          if (!titleOk) validationReport[file.name].push("OCR TITLE MISMATCH");
+        }
+
+        const hasTextIssue =
+          !titleOk &&
+          (
+            (textCompare.extra && textCompare.extra.length > 0) ||
+            (textCompare.missing && textCompare.missing.length > 0)
+          );
+
+        if (hasTextIssue) {
+          if (!validationReport[file.name]) validationReport[file.name] = [];
+          if (!validationReport[file.name].includes('OCR TEXT MISMATCH')) {
+            validationReport[file.name].push('OCR TEXT MISMATCH');
+          }
+        }
+
+      } catch (err) {
+        validationReport[file.name].push("OCR ERROR");
+        console.error("OCR Error for " + file.name, err);
+      }
+
+      doneFiles++;
+
+      const status = document.getElementById('ocrProcessStatus');
+      if (status && ocrProcessStartTime) {
+        status.innerHTML = `OCR Status: Processing...<br>Processed Files: ${doneFiles}/${totalFiles}<br>Elapsed Time: ${formatDuration(Date.now() - ocrProcessStartTime)}`;
+      }
+    }
+
+    updateErrorCountFromReport();
+    previewAll();
+    finishOcrProcessUI(totalFiles, doneFiles, false);
+
+  } catch (err) {
+    console.error("OCR process failed:", err);
+    finishOcrProcessUI(totalFiles, doneFiles, true);
+    alert("OCR process failed. Check console for details.");
+  }
+}
+
+async function runValidation() {
+  validationReport = {};
+  expiredFiles.clear();
+  matchedRows.clear();
+  const nowUK = getUKNow();
+
+  for (let file of assetFiles) {
+    const name = file.name.toUpperCase();
+    const tc = parseTimeCode(name);
+    const fileErrors = [];
+
+    if (file.name.includes(' ')) fileErrors.push("SPACE FOUND");
+    if (/[!@#$%^&*()\+=<>?":}{\\/,'';\]\[=*]/.test(name.replace(/\.[^.]+$/, '')))
+      fileErrors.push("SPECIAL CHAR");
+
+    if (tc) {
+      const endDT = new Date(`${tc.endDate}T${tc.endTime}:00`);
+      if (endDT <= nowUK) expiredFiles.add(file.name);
+    }
+
+    const matchedRow = findRowByFilename(file.name);
+    if (matchedRow) matchedRows.add(matchedRow.rowNum);
+    else fileErrors.push("NO EXCEL MATCH");
+
+    if (fileErrors.length > 0) validationReport[file.name] = fileErrors;
+  }
+
+  updateErrorCountFromReport();
+  document.getElementById('timeUpCount').textContent = expiredFiles.size;
+
+  let mCount = 0;
+  excelData.forEach(r => { if (!matchedRows.has(r.rowNum)) mCount++; });
+  document.getElementById('missingCount').textContent = mCount;
+
+  previewAll();
+}
+
+function updateErrorCountFromReport() {
+  let errSlots = 0;
+  Object.keys(validationReport).forEach(fname => {
+    const errs = validationReport[fname];
+    if (errs && errs.length > 0) errSlots++;
+  });
+  document.getElementById('errorCount').textContent = errSlots;
+}
+
+function previewAll() {
+  const gallery = document.getElementById('mainGallery');
+  gallery.innerHTML = '';
+  assetFiles.forEach(file => {
+    const meta = assetMeta[file.name];
+    const isExp = expiredFiles.has(file.name);
+    const errors = validationReport[file.name] || [];
+    const matchInfo = ocrQaResults[file.name];
+
+    if (meta && meta.w && meta.h) {
+      const typeFromName = getFileTypeFromName(file.name);
+      const exp = expectedResByType[typeFromName];
+      if (exp) {
+        const isResOk = meta.w === exp.w && meta.h === exp.h;
+        if (!isResOk && !errors.includes('TYPE/RESOLUTION MISMATCH')) {
+          errors.push('TYPE/RESOLUTION MISMATCH');
+        }
+      }
+    }
+    if (errors.length > 0) {
+      validationReport[file.name] = errors;
+    }
+
+    let matchHtml = '';
+    if (matchInfo) {
+      if (matchInfo.rowNum) {
+        const fullyOk = matchInfo.dateOk && matchInfo.timeOk && matchInfo.bannerTimeOk !== false;
+        const statusLine = fullyOk
+          ? '✅ Excel Match OK'
+          : `${matchInfo.dateOk === false ? 'Date ❌ ' : ''}${matchInfo.timeOk === false ? 'Time ❌ ' : ''}${matchInfo.titleOk === false ? 'Title ❌ ' : ''}${matchInfo.bannerTimeOk === false ? 'BannerTime ❌ ' : ''}`;
+
+        const similarityText = matchInfo.similarity
+          ? (matchInfo.similarity * 100).toFixed(1) + '%'
+          : 'N/A';
+
+        matchHtml = `
+          <div style="margin-top:4px; font-size:9px; color:#8bc34a;">
+            Match: Row ${matchInfo.rowNum} | ${matchInfo.type || ''}<br>
+            ${statusLine}<br>
+            <span style="color:#00e5ff;">Similarity: ${similarityText}</span>
+          </div>`;
+      } else {
+        matchHtml = `
+          <div style="margin-top:4px; font-size:9px; color:#ffab40;">
+            NO EXCEL MATCH
+          </div>`;
+      }
+    }
+
+    const card = document.createElement('div');
+    card.className = `card ${errors && errors.length > 0 ? 'has-error' : ''} ${isExp ? 'is-expired' : ''}`;
+    card.onclick = () => openAssetModal(file.name);
+    card.innerHTML = `
+      ${errors && errors.length > 0 ? `<div class="error-overlay">⚠️ ${errors.join(' | ')}</div>` : ''}
+      <div class="card-img"><img src="${meta.url}"></div>
+      <div class="card-info">
+        <b>${file.name}</b><br>
+        <span class="tag">${file.name.split('_')[0]}</span>
+        ${isExp ? '<span class="tag tag-timeup">TIME UP</span>' : ''}
+        <br><span style="color:#ffd54f; font-size:9px;">Res: ${meta.w}x${meta.h}</span>
+        ${matchHtml}
+      </div>`;
+    gallery.appendChild(card);
+  });
+}
+
+function openAssetModal(filename) {
+  const meta = assetMeta[filename];
+  const err = validationReport[filename];
+  const match = ocrQaResults[filename];
+
+  let matchDetail = '';
+  if (match && match.rowNum) {
+    const fullyOk = match.dateOk && match.timeOk && match.bannerTimeOk !== false;
+    const statusLine = fullyOk
+      ? '✅ Excel Match OK'
+      : `Date: ${match.dateOk ? 'OK' : 'MISMATCH'} | Time(Filename): ${match.timeOk ? 'OK' : 'MISMATCH'} | BannerTime: ${match.bannerTimeOk !== false ? 'OK' : 'MISMATCH'} | Title: ${match.titleOk ? 'OK' : 'MISMATCH'}`;
+
+    const extras = (match.extraWords || []).join(', ');
+    const miss = (match.missingWords || []).join(', ');
+    const similarity = match.similarity ? (match.similarity * 100).toFixed(1) + '%' : 'N/A';
+
+    const textLines = [];
+    if (match.cleanOcrTitle || match.displayExcelTitle) {
+      textLines.push(`OCR Title: ${match.cleanOcrTitle || '-'}`);
+      textLines.push(`<span style="color:#00e5ff;">Excel Title: ${match.displayExcelTitle || '-'}</span>`);
+      textLines.push(`Similarity: ${similarity}`);
+    }
+    if (match.type === 'PB' && match.pbDateMonthTimeLine) {
+      textLines.push(`PB Line OCR: ${match.pbDateMonthTimeLine}`);
+    }
+    if (extras || miss) {
+      textLines.push(`Words Extra: ${extras || '-'} | Missing: ${miss || '-'}`);
+    }
+
+    const textDiffBlock = textLines.length
+      ? `<br>${textLines.join('<br>')}`
+      : '';
+
+    matchDetail = `
+      <p style="font-size:12px; color:#8bc34a;">
+        Matched Row: ${match.rowNum} (${match.type || ''})<br>
+        ${statusLine}${textDiffBlock}<br>
+        ${match.bannerTime ? 'Banner Time: ' + match.bannerTime + ' | Excel End: ' + match.excelEndTime : ''}
+      </p>`;
+  } else if (match && !match.rowNum) {
+    matchDetail = `<p style="font-size:12px; color:#ffab40;">NO EXCEL MATCH</p>`;
+  }
+
+  document.getElementById('modalBody').innerHTML = `
+    <h3>${filename}</h3>
+    <p>Resolution: ${meta.w}x${meta.h}</p>
+    <div style="color:var(--error)">${err && err.length > 0 ? err.join(', ') : 'Technical OK'}</div>
+    ${matchDetail}
+    <center><img src="${meta.url}" style="max-width:100%; margin-top:10px;"></center>`;
+  document.getElementById('detailModal').style.display = 'flex';
+}
+
+function closeModal() { document.getElementById('detailModal').style.display = 'none'; }
+
+function showExcelDetails() {
+  document.getElementById('missingTitle').textContent = 'Excel Details';
+  renderExcelSidebar();
+}
+
+function showMissingDetails() {
+  const container = document.getElementById('missingContainer');
+  container.innerHTML = '';
+  document.getElementById('missingTitle').textContent = 'Missing Assets (Excel Rows Without Image)';
+  excelData.forEach(item => {
+    if (!matchedRows.has(item.rowNum)) {
+      const div = document.createElement('div');
+      div.className = 'missing-item';
+      div.innerHTML = `
+        Row: ${item.rowNum} | <b>${item.type}</b><br>
+        <span style="color:#ff5252">${item.text}</span><br>
+        Start: ${item.startDate} (${item.startTime})<br>
+        End: ${item.endDate} (${item.endTime})
+      `;
+      container.appendChild(div);
+    }
+  });
+}
+
+function showValidationErrorDetails() {
+  const container = document.getElementById('missingContainer');
+  container.innerHTML = '';
+  document.getElementById('missingTitle').textContent = 'Validation Errors Details';
+  Object.keys(validationReport).forEach((fname) => {
+    const errs = validationReport[fname];
+    if (!errs || errs.length === 0) return;
+    const match = ocrQaResults[fname];
+    const type = fname.split('_')[0].toUpperCase();
+    const div = document.createElement('div');
+    div.className = 'missing-item';
+    div.innerHTML = `
+      <b>${fname}</b><br>
+      Type: <span style="color:#ffd54f">${type}</span><br>
+      Errors: <span style="color:#ff5252">${errs.join(' | ')}</span><br>
+      ${match && match.rowNum ? `Excel Row: ${match.rowNum} (${match.type || ''})` : ''}
+    `;
+    container.appendChild(div);
+  });
+}
+
+function showTimeUpDetails() {
+  const container = document.getElementById('missingContainer');
+  container.innerHTML = '';
+  document.getElementById('missingTitle').textContent = 'UK Time-Up Details';
+  assetFiles.forEach(file => {
+    if (!expiredFiles.has(file.name)) return;
+    const meta = assetMeta[file.name];
+    const match = ocrQaResults[file.name];
+    const type = file.name.split('_')[0].toUpperCase();
+    const div = document.createElement('div');
+    div.className = 'missing-item';
+    div.innerHTML = `
+      <b>${file.name}</b><br>
+      Type: <span style="color:#ffd54f">${type}</span><br>
+      Status: <span style="color:#ffab40">TIME UP</span><br>
+      ${match && match.rowNum ? `Excel Row: ${match.rowNum} (${match.type || ''})<br>` : ''}
+      <span style="color:#ffd54f; font-size:10px;">Res: ${meta ? meta.w + 'x' + meta.h : 'N/A'}</span>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function updateStats() {
+  document.getElementById('totalSlots').textContent = excelData.length;
+  const pb = excelData.filter(r => r.type === 'PB').length;
+  const ld = excelData.filter(r => r.type === 'LD').length;
+  const bb = excelData.filter(r => r.type === 'BB').length;
+  document.getElementById('typeBreakdown').textContent = `PB: ${pb} | LD: ${ld} | BB: ${bb}`;
+  updateOCRButtonVisibility();
+}
+</script>
+</body>
+</html>
